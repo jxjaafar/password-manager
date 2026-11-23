@@ -12,6 +12,26 @@ function config(env = process.env) {
     ...(env.MYSQL_SSL === 'true' ? { ssl: { rejectUnauthorized: true } } : {})
   };
 }
+async function synchronizeEntries(connection, id, representation) {
+  const data = representation ? JSON.parse(representation) : null;
+  const kvs = data?.version === 2 ? data.kvs : {};
+  const tags = Object.keys(kvs);
+  if (!tags.length) {
+    await connection.execute('DELETE FROM vault_entries WHERE vault_id = ?', [id]);
+    return;
+  }
+  await connection.execute(`DELETE FROM vault_entries WHERE vault_id = ? AND domain_tag NOT IN (${tags.map(() => '?').join(',')})`, [id, ...tags]);
+  for (const [tag, record] of Object.entries(kvs)) {
+    const metadata = data.metadata?.[tag];
+    await connection.execute(
+      `INSERT INTO vault_entries (vault_id, domain_tag, encrypted_password, password_nonce, encrypted_account_details, account_details_nonce)
+       VALUES (?, ?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE encrypted_password = VALUES(encrypted_password), password_nonce = VALUES(password_nonce),
+       encrypted_account_details = VALUES(encrypted_account_details), account_details_nonce = VALUES(account_details_nonce)`,
+      [id, tag, record.ciphertext, record.iv, metadata?.ciphertext || null, metadata?.iv || null]
+    );
+  }
+}
 function createStore(pool) {
   return {
     async get(id) {
@@ -27,6 +47,7 @@ function createStore(pool) {
         if (result.affectedRows !== 1) {
           const error = new Error('Vault changed in another tab. Reload before saving.'); error.status = 409; throw error;
         }
+        await synchronizeEntries(connection, id, representation);
         await connection.commit();
         return { revision: revision + 1 };
       } catch (error) { await connection.rollback(); throw error; }
@@ -37,7 +58,7 @@ function createStore(pool) {
 }
 async function connectStore(env = process.env) {
   const pool = mysql.createPool(config(env));
-  try { await pool.execute('SELECT vault_id FROM vaults LIMIT 0'); return createStore(pool); }
+  try { await pool.execute('SELECT entry_id FROM vault_entries LIMIT 0'); return createStore(pool); }
   catch (error) { await pool.end(); throw error; }
 }
 async function setup() {
@@ -48,8 +69,15 @@ async function setup() {
   try {
     await connection.query(`CREATE DATABASE IF NOT EXISTS \`${database}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_bin`);
     await connection.changeUser({ database });
-    await connection.query(fs.readFileSync(path.join(__dirname, 'database/schema.sql'), 'utf8'));
-    console.log(`MySQL ready: ${database}.vaults`);
+    const schema = fs.readFileSync(path.join(__dirname, 'database/schema.sql'), 'utf8');
+    for (const statement of schema.split(';').map(value => value.trim()).filter(Boolean)) await connection.query(statement);
+    await connection.beginTransaction();
+    try {
+      const [vaults] = await connection.query('SELECT vault_id, representation FROM vaults FOR UPDATE');
+      for (const vault of vaults) await synchronizeEntries(connection, vault.vault_id, vault.representation);
+      await connection.commit();
+    } catch (error) { await connection.rollback(); throw error; }
+    console.log(`MySQL ready: ${database}.vaults and ${database}.vault_entries`);
   } finally { await connection.end(); }
 }
 if (require.main === module) setup().catch(error => { console.error(`MySQL setup failed (${error.code || 'error'}). Check your .env credentials and database permissions.`); process.exitCode = 1; });
