@@ -1,6 +1,6 @@
 const $ = id => document.getElementById(id);
 function initializeBrand() {
-document.title = 'Password — A little magic. A safer vault.';
+document.title = 'Password — A little magic. A safer Key Safe.';
 const magicKey = `<svg viewBox="0 0 64 64" fill="none" aria-hidden="true"><path d="M27 37 12 52v8h9v-7h7v-7l7-7" stroke="currentColor" stroke-width="4" stroke-linejoin="round"/><circle cx="39" cy="25" r="15" stroke="currentColor" stroke-width="4"/><path d="m39 16 2.5 6.5L48 25l-6.5 2.5L39 34l-2.5-6.5L30 25l6.5-2.5L39 16ZM15 4l2 5 5 2-5 2-2 5-2-5-5-2 5-2 2-5ZM56 39l1.5 4 4 1.5-4 1.5-1.5 4-1.5-4-4-1.5 4-1.5 1.5-4Z" fill="currentColor"/></svg>`;
 document.querySelector('.brand').innerHTML = `<span class="brand-key">${magicKey}</span><span>password<span class="dot">.</span></span>`;
 document.querySelector('.dialog-logo').outerHTML = `<div class="treasure-scene" aria-hidden="true"><div class="treasure-halo"></div><span class="spark spark-one">✦</span><span class="spark spark-two">✧</span><span class="spark spark-three">✦</span><div class="chest"><div class="chest-light"></div><div class="chest-lid"><i></i></div><div class="chest-body"><i></i><span class="chest-lock">⌕</span></div></div><div class="flying-key">${magicKey}</div><div class="scene-caption">A LITTLE MAGIC. ONLY YOUR KEY.</div></div>`;
@@ -15,7 +15,7 @@ const b64 = bytes => { let text = ''; for (const byte of new Uint8Array(bytes)) 
 const unb64 = value => Uint8Array.from(atob(value), c => c.charCodeAt(0));
 function notify(message) { $('toast').textContent = message; $('toast').classList.add('visible'); clearTimeout(toastTimer); toastTimer = setTimeout(() => $('toast').classList.remove('visible'), 3000); }
 function validateEnvelope(data) {
-  if (!data || data.version !== 1 || data.iterations !== ITERATIONS || typeof data.salt !== 'string' || typeof data.iv !== 'string' || typeof data.data !== 'string' || data.data.length > 12000000 || unb64(data.salt).length !== 16 || unb64(data.iv).length !== 12 || unb64(data.data).length < 16) throw new Error('Invalid vault file');
+  if (!data || data.version !== 1 || data.iterations !== ITERATIONS || typeof data.salt !== 'string' || typeof data.iv !== 'string' || typeof data.data !== 'string' || data.data.length > 12000000 || unb64(data.salt).length !== 16 || unb64(data.iv).length !== 12 || unb64(data.data).length < 16) throw new Error('Invalid Key Safe file');
   return data;
 }
 async function derive(password, salt) {
@@ -25,7 +25,7 @@ async function derive(password, salt) {
 async function persist(nextVault = vault) {
   // Work on a clone so failed encryption/storage writes cannot corrupt the live state.
   const startingKey = key;
-  if (!startingKey) throw new Error('Vault is locked');
+  if (!startingKey) throw new Error('Key Safe is locked');
   const chain = Keychain.loadFromLive(startingKey);
   for (const old of vault) if (!nextVault.some(item => item.id === old.id)) await chain.remove(old.id);
   const metadata = [];
@@ -39,10 +39,10 @@ async function persist(nextVault = vault) {
     metadata.push(record);
   }
   const [representation] = await chain.dump();
-  if (key !== startingKey) throw new Error('Vault locked or changed while saving. Unlock and try again.');
+  if (key !== startingKey) throw new Error('Key Safe locked or changed while saving. Unlock and try again.');
   if (storage) await storage.save(representation);
   else localStorage.setItem(STORAGE, representation);
-  if (key !== startingKey) throw new Error('Vault locked during save. Unlock to reload the saved data.');
+  if (key !== startingKey) throw new Error('Key Safe locked during save. Unlock to reload the saved data.');
   key = chain; envelope = JSON.parse(representation); vault = metadata;
 }
 function strength(password) { return password.length >= 16 && new Set(password).size >= 8 ? 'Strong' : password.length >= 12 && new Set(password).size >= 6 ? 'Fair' : 'Weak'; }
@@ -119,49 +119,52 @@ function configureAuth() {
   $('authForm').reset(); $('masterPassword').type = 'password'; $('authError').textContent = '';
   const exists = Boolean(storage ? storage.read() : localStorage.getItem(STORAGE));
   $('authTitle').textContent = exists ? 'Your key to everything.' : 'Welcome to Password.';
-  $('authDescription').textContent = exists ? 'Enter your master password to unlock your private vault.' : 'Create a master password to start your encrypted vault.';
+  $('authDescription').textContent = exists ? 'Enter your master password to unlock your private Key Safe.' : 'Create a master password to start your encrypted Key Safe.';
   $('confirmLabel').classList.toggle('hidden', exists); $('confirmPassword').required = !exists;
   $('masterPassword').minLength = exists ? 1 : 12; $('masterPassword').autocomplete = exists ? 'current-password' : 'new-password';
-  $('authSubmit').textContent = exists ? 'Unlock vault →' : 'Create vault →';
+  $('authSubmit').textContent = exists ? 'Unlock Key Safe →' : 'Create Key Safe →';
   if (!$('authDialog').open) $('authDialog').showModal();
 }
 $('authDialog').addEventListener('cancel', event => event.preventDefault());
-$('authForm').onsubmit = async event => {
-  event.preventDefault(); $('authError').textContent = ''; $('authSubmit').disabled = true;
+async function openKeySafe(password, trusted) { $('authError').textContent = ''; $('authSubmit').disabled = true;
   try {
     if (!crypto.subtle) throw new Error('Use localhost or HTTPS to enable secure cryptography.');
-    const stored = storage ? storage.read() : localStorage.getItem(STORAGE), password = $('masterPassword').value;
-    if (!stored && password !== $('confirmPassword').value) throw new Error('The master passwords do not match.');
-    const trusted = $('trustedChecksum').value.trim() || undefined;
+    const stored = storage ? storage.read() : localStorage.getItem(STORAGE);
     const parsed = stored ? JSON.parse(stored) : null;
     if (parsed?.version === 1) {
-      if (trusted) throw new Error('Trusted checksums are supported for version 2 vaults only.');
+      if (trusted) throw new Error('Trusted checksums are supported for version 2 Key Safes only.');
       validateEnvelope(parsed);
       const legacyKey = await derive(password, unb64(parsed.salt));
       let records;
       try { records = JSON.parse(new TextDecoder().decode(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: unb64(parsed.iv) }, legacyKey, unb64(parsed.data)))); }
-      catch { throw new Error('Could not unlock the legacy vault. Check your master password.'); }
+      catch { throw new Error('Could not unlock the legacy Key Safe. Check your master password.'); }
       if (!Array.isArray(records) || records.some(item => !item || ['id', 'name', 'username', 'url', 'password', 'notes'].some(field => typeof item[field] !== 'string'))) throw new Error('Invalid legacy records.');
-      if (records.some(item => [...item.password].length > 64)) throw new Error('Legacy vault has a password longer than the assignment’s 64-character limit. Use the previous app version to export and shorten it before migration. Your saved vault has not changed.');
+      if (records.some(item => [...item.password].length > 64)) throw new Error('Legacy Key Safe has a password longer than the assignment’s 64-character limit. Use the previous app version to export and shorten it before migration. Your saved Key Safe has not changed.');
       key = await Keychain.init(password); vault = [];
       await persist(records);
-      notify('Vault upgraded to individually encrypted records.');
+      notify('Key Safe upgraded to individually encrypted records.');
     } else {
       key = stored ? await Keychain.load(password, stored, trusted) : await Keychain.init(password);
       vault = await key.entries();
       if (!stored) await persist();
       else if (storage?.isDatabase && storage.representation === null) await storage.save(stored);
     }
+    if (!$('authDialog').open) $('authDialog').showModal();
     $('authForm').reset();
     $('authTitle').textContent = 'Your treasures await.';
-    $('authDescription').textContent = 'The right key. A little magic. Welcome to your vault.';
+    $('authDescription').textContent = 'The right key. A little magic. Welcome to your Key Safe.';
     const unlockedKey = key;
     $('authDialog').classList.add('unlocking');
     await new Promise(resolve => setTimeout(resolve, matchMedia('(prefers-reduced-motion: reduce)').matches ? 150 : 1650));
     if (key !== unlockedKey) return;
     $('authDialog').close(); $('authDialog').classList.remove('unlocking'); showView('vaultView'); resetIdle();
-  } catch (error) { key = null; vault = []; $('authError').textContent = error.message; $('authDialog').classList.remove('denied'); void $('authDialog').offsetWidth; $('authDialog').classList.add('denied'); }
+  } catch (error) { key = null; vault = []; $('authError').textContent = error.message; $('authDialog').classList.remove('denied'); void $('authDialog').offsetWidth; $('authDialog').classList.add('denied'); throw error; }
   finally { $('authSubmit').disabled = false; }
+}
+$('authForm').onsubmit = async event => {
+  event.preventDefault();
+  if (!storage.read() && $('masterPassword').value !== $('confirmPassword').value) { $('authError').textContent = 'Passwords do not match.'; return; }
+  try { await openKeySafe($('masterPassword').value, $('trustedChecksum').value.trim() || undefined); } catch {}
 };
 $('entryForm').onsubmit = async event => {
   event.preventDefault(); if (!key) return; $('saveBtn').disabled = true; $('entryError').textContent = '';
@@ -174,8 +177,8 @@ $('entryForm').onsubmit = async event => {
   finally { $('saveBtn').disabled = false; }
 };
 $('deleteBtn').onclick = async () => {
-  if (!key || !confirm('Permanently delete this password from your vault?')) return;
-  try { await persist(vault.filter(item => item.id !== $('entryId').value)); $('entryDialog').close(); $('entryForm').reset(); render(); notify('Password deleted.'); } catch { $('entryError').textContent = 'Could not save the vault. Please try again.'; }
+  if (!key || !confirm('Permanently delete this password from your Key Safe?')) return;
+  try { await persist(vault.filter(item => item.id !== $('entryId').value)); $('entryDialog').close(); $('entryForm').reset(); render(); notify('Password deleted.'); } catch { $('entryError').textContent = 'Could not save the Key Safe. Please try again.'; }
 };
 $('exportBtn').onclick = async () => {
   if (!key) return;
@@ -195,7 +198,7 @@ function importCredentials() {
     const finish = value => { dialog.close(); form.reset(); dialog.remove(); resolve(value); };
     cancel.onclick = () => finish(null); dialog.oncancel = event => { event.preventDefault(); finish(null); };
     form.onsubmit = event => { event.preventDefault(); finish({ password: password.value, trusted: hash.value.trim() || undefined }); };
-    form.append(heading, passwordLabel, hashLabel, element('p', '', 'The current vault is replaced only after the backup passes authentication.'), cancel, submit); dialog.append(form); document.body.append(dialog); dialog.showModal();
+    form.append(heading, passwordLabel, hashLabel, element('p', '', 'The current Key Safe is replaced only after the backup passes authentication.'), cancel, submit); dialog.append(form); document.body.append(dialog); dialog.showModal();
   });
 }
 $('importFile').onchange = async () => {
@@ -205,14 +208,14 @@ $('importFile').onchange = async () => {
     const representation = await file.text(), imported = JSON.parse(representation);
     if (imported.version === 1) validateEnvelope(imported);
     else if (imported.version !== 2 || !imported.kvs) throw new Error('Invalid backup');
-    if (!confirm('Replace this vault with the encrypted backup? Export your current vault first. You will need the backup’s master password.')) return;
+    if (!confirm('Replace this Key Safe with the encrypted backup? Export your current Key Safe first. You will need the backup’s master password.')) return;
     const credentials = await importCredentials();
     if (!credentials) return;
     const { password, trusted } = credentials;
     if (imported.version === 2) {
       await Keychain.load(password, representation, trusted);
     } else {
-      if (trusted) throw new Error('Legacy vaults do not support trusted checksums');
+      if (trusted) throw new Error('Legacy Key Safes do not support trusted checksums');
       const legacyKey = await derive(password, unb64(imported.salt));
       await crypto.subtle.decrypt({ name: 'AES-GCM', iv: unb64(imported.iv) }, legacyKey, unb64(imported.data));
     }
@@ -231,7 +234,7 @@ $('generateBtn').onclick = () => { $('generatedPassword').textContent = generate
 $('length').oninput = () => { $('lengthValue').textContent = $('length').value; $('generatedPassword').textContent = generate(); };
 $('copyGenerated').onclick = () => copy($('generatedPassword').textContent);
 for (const event of ['pointerdown', 'keydown', 'input']) document.addEventListener(event, resetIdle, { passive: true });
-window.addEventListener('storage', event => { if (storage?.mode === 'local' && event.key === STORAGE && key) { lock(); notify('Vault changed in another tab. Unlock again.'); } });
+window.addEventListener('storage', event => { if (storage?.mode === 'local' && event.key === STORAGE && key) { lock(); notify('Key Safe changed in another tab. Unlock again.'); } });
 initializeBrand();
 const trustedLabel = element('label', '', 'Trusted SHA-256 checksum (optional)');
 const trustedInput = element('input'); trustedInput.id = 'trustedChecksum'; trustedInput.autocomplete = 'off'; trustedInput.placeholder = 'From your separate trusted storage'; trustedLabel.append(trustedInput);
@@ -243,8 +246,8 @@ async function initializeStorage() {
   render(); $('authSubmit').disabled = true; $('authDialog').showModal();
   try {
     storage = new VaultStorage(STORAGE); await storage.initialize();
-    accountGate = new AccountGate(storage, async () => {
-      accountGate.update(); configureAuth(); $('authSubmit').disabled = false;
+    accountGate = new AccountGate(storage, async password => {
+      accountGate.update(); await openKeySafe(password);
     }, async () => {
       lock(); $('authSubmit').disabled = true;
       try { await storage.logout(); accountGate.show(); }
@@ -252,8 +255,8 @@ async function initializeStorage() {
     });
     const databaseName = storage.mode === 'sqlite' ? 'SQLite' : 'MySQL';
     document.querySelector('.local').textContent = storage.isDatabase ? `● ${databaseName.toUpperCase()} CONNECTED` : '● BROWSER STORAGE';
-    document.querySelector('.secure-badge').textContent = storage.isDatabase ? `● Encrypted vault in ${databaseName}` : '● Encrypted in this browser';
-    if (storage.requiresAccount) { $('authTitle').textContent = 'Sign in to find your vault.'; accountGate.show(); }
+    document.querySelector('.secure-badge').textContent = storage.isDatabase ? `● Encrypted Key Safe in ${databaseName}` : '● Encrypted in this browser';
+    if (storage.requiresAccount) { $('authTitle').textContent = 'Sign in to find your Key Safe.'; accountGate.show(); }
     else { accountGate.update(); configureAuth(); $('authSubmit').disabled = false; }
   } catch (error) { $('authError').textContent = error.message; }
 }
