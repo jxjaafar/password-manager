@@ -128,4 +128,4 @@ async function setup() {
   } finally { await connection.end(); }
 }
 if (require.main === module) setup().catch(error => { console.error(`MySQL setup failed (${error.code || 'error'}). Check your .env credentials and database permissions.`); process.exitCode = 1; });
-module.exports = { config, createStore, connectStore };
+module.exports = { config, createStore, connectStore, setup };

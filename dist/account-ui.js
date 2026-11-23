@@ -10,7 +10,7 @@
       toggle.onclick = () => {
         this.register = !this.register; form.querySelector('.error').textContent = '';
         form.querySelector('h2').textContent = this.register ? 'Create your account' : 'Sign in to Password';
-        form.querySelector('.account-help').textContent = this.register ? 'Register once. If this browser has an existing unclaimed MySQL vault, it will be linked to your account.' : 'Sign in to find your saved vault, then unlock it with your master password.';
+        form.querySelector('.account-help').textContent = this.register ? 'Register once. If this browser has an existing unclaimed database vault, it will be linked to your account.' : 'Sign in to find your saved vault, then unlock it with your master password.';
         form.querySelector('.account-confirm').classList.toggle('hidden', !this.register);
         form.elements.confirm.required = this.register; form.elements.password.autocomplete = this.register ? 'new-password' : 'current-password';
         submit.textContent = this.register ? 'Create account' : 'Sign in';

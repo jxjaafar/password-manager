@@ -37,6 +37,7 @@ function createStorageHandler(store, { secureCookies = false, accountAuth = true
     const route = req.url.split('?')[0];
     if (!route.startsWith('/api/')) return false;
     res.setHeader('Cache-Control', 'no-store');
+    const mode = store?.kind || 'mysql';
     if (!store) { respond(res, route === '/api/vault' ? 200 : 503, route === '/api/vault' ? { mode: 'local' } : { error: 'Account storage is unavailable.' }); return true; }
     try {
       if (req.headers['sec-fetch-site'] === 'cross-site') { respond(res, 403, { error: 'Cross-site access denied' }); return true; }
@@ -77,8 +78,8 @@ function createStorageHandler(store, { secureCookies = false, accountAuth = true
       if (route !== '/api/vault') { respond(res, 404, { error: 'Endpoint not found' }); return true; }
       if (!['GET', 'PUT'].includes(req.method)) { respond(res, 405, { error: 'Method not allowed' }); return true; }
       if (accountAuth) {
-        if (!session) { respond(res, 401, { mode: 'mysql', requiresAccount: true, error: 'Sign in to open your saved vault.' }); return true; }
-        if (req.method === 'GET') respond(res, 200, { mode: 'mysql', email: session.email, ...await store.get(session.vault_id) });
+        if (!session) { respond(res, 401, { mode, requiresAccount: true, error: 'Sign in to open your saved vault.' }); return true; }
+        if (req.method === 'GET') respond(res, 200, { mode, email: session.email, ...await store.get(session.vault_id) });
         else {
           const data = await body(req);
           if (!Number.isSafeInteger(data.revision) || data.revision < 0 || data.revision > 4294967294) throw new Error('Invalid revision');
@@ -93,7 +94,7 @@ function createStorageHandler(store, { secureCookies = false, accountAuth = true
         token ||= randomBytes(32).toString('hex');
         const result = await store.get(vaultId(token));
         res.setHeader('Set-Cookie', `password_vault=${token}; HttpOnly; SameSite=Strict; Path=/api; Max-Age=31536000${secureCookies ? '; Secure' : ''}`);
-        respond(res, 200, { mode: 'mysql', ...result });
+        respond(res, 200, { mode, ...result });
       } else {
         if (!token || req.headers.origin !== expectedOrigin || req.headers['content-type']?.split(';')[0].trim() !== 'application/json') { respond(res, 403, { error: 'Same-origin JSON request with vault cookie required' }); return true; }
         const data = await body(req);

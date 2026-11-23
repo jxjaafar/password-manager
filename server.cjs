@@ -21,16 +21,20 @@ return http.createServer(async (req, res) => {
 }
 async function start() {
   require('dotenv').config({ quiet: true });
-  const enabled = process.env.MYSQL_ENABLED === 'true';
+  const type = process.env.DATABASE_TYPE || 'sqlite';
   const host = process.env.HOST || '127.0.0.1';
-  const store = enabled ? await require('./database.cjs').connectStore() : null;
+  if (!['sqlite', 'mysql', 'local'].includes(type)) throw new Error('Unknown DATABASE_TYPE');
+  const store = type === 'sqlite' ? require('./sqlite-store.cjs').connectSQLite() : type === 'mysql' ? await require('./database.cjs').connectStore() : null;
   const server = createServer(store, { secureCookies: process.env.NODE_ENV === 'production' });
-  server.listen(Number(process.env.PORT) || 3000, host, () => console.log(`Password: http://localhost:${server.address().port} — ${enabled ? 'MySQL connected' : 'browser-local storage'}`));
+  server.listen(Number(process.env.PORT) || 3000, host, () => {
+    console.log(`Password: http://localhost:${server.address().port} — ${type} storage`);
+    if (type === 'sqlite') console.log(`Database file: ${store.filename}`);
+  });
   const close = () => server.close(async () => {
     if (store) { await store.close(); }
     process.exit(0);
   });
   process.on('SIGINT', close); process.on('SIGTERM', close);
 }
-if (require.main === module) start().catch(error => { console.error(`Server failed (${error.code || 'configuration'}). Check .env, start MySQL, and run npm run db:setup.`); process.exitCode = 1; });
+if (require.main === module) start().catch(error => { console.error(`Server failed (${error.code || 'configuration'}): check DATABASE_TYPE and run npm run db:setup. SQLite requires Node.js 22.13 or newer.`); process.exitCode = 1; });
 module.exports = { createServer };

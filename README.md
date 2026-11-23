@@ -6,6 +6,20 @@ An educational password-manager core for ICS 3201 Project 1, with an optional br
 
 Use Node.js 22 for the full app and Netlify Function. The standalone assignment core also supports Node.js 18. Install dependencies with `npm install`.
 
+## Simple local demo (SQLite)
+
+SQLite is now the default for `npm start`. Use Node.js 22.13 or newer. No MySQL server, database password, or hosted service is needed. The database is created automatically at [database/password-manager.sqlite](./database/password-manager.sqlite) and is ignored by Git. Choose `DATABASE_TYPE=sqlite` in `.env` to make this explicit. Your master password and account password are still required for the app; they are separate from database connection credentials.
+
+1. Run `npm install`, then `npm start` and open http://localhost:3000.
+2. Register an account once, then create/unlock its vault. Use the same account to sign in later or from a second browser.
+3. In VS Code, install the recommended **SQLite Viewer** extension (`qwtel.sqlite-viewer`). Open [database/password-manager.sqlite](./database/password-manager.sqlite).
+4. Select `password_demo` for a compact presentation or `vault_entries` for all per-password encryption columns. `accounts` shows email and salted account-password hashes. `vaults` holds complete encrypted snapshots. `sessions` holds hashed session tokens.
+5. Save a fake credential in the app, then refresh the database viewer to show the new row. Site names, usernames, and passwords remain encrypted; show readable values through the unlocked app alongside the database view.
+
+To copy existing encrypted MySQL data into an empty SQLite demo, run `npm run db:import-mysql`. This reads MySQL using the existing private connection settings and leaves it unchanged. It preserves vault IDs and account hashes, but requires signing in again. Unclaimed legacy vaults can be linked by registering once in the original browser, using its existing legacy cookie. The import refuses to replace a nonempty SQLite database. For another browser, an encrypted export/import also works.
+
+The SQLite demo is local. It is not the Netlify persistence backend; Netlify Functions still use hosted MySQL. To run that backend locally instead, choose `DATABASE_TYPE=mysql`, run `npm run db:setup`, and supply MySQL credentials. `DATABASE_TYPE=local` is the explicit browser-only mode. Do not commit your SQLite file or its WAL/SHM sidecars to GitHub. Back up the database with the app stopped or use SQLite's backup facilities; copying only the main file during writes may miss WAL data.
+
 ```sh
 npm install
 npm start
@@ -16,6 +30,8 @@ npm run build
 ```
 
 ## Local MySQL connection
+
+This is optional for the local demo. Set `DATABASE_TYPE=mysql` to select it.
 
 The Node server and Netlify Function save encrypted vault snapshots to MySQL. Register an account once, then sign in with the same email and account password from any browser to load the same vault. Unlock it with its separate master password. Only the account password is sent over HTTPS for authentication; its salted scrypt hash is stored in MySQL. The master password, encryption keys, and plaintext website passwords stay in the browser.
 

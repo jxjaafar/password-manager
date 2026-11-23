@@ -150,7 +150,7 @@ $('authForm').onsubmit = async event => {
       key = stored ? await Keychain.load(password, stored, trusted) : await Keychain.init(password);
       vault = await key.entries();
       if (!stored) await persist();
-      else if (storage?.mode === 'mysql' && storage.representation === null) await storage.save(stored);
+      else if (storage?.isDatabase && storage.representation === null) await storage.save(stored);
     }
     $('authForm').reset();
     $('authTitle').textContent = 'Your treasures await.';
@@ -250,8 +250,9 @@ async function initializeStorage() {
       try { await storage.logout(); accountGate.show(); }
       catch (error) { $('authError').textContent = error.message; $('authSubmit').disabled = false; }
     });
-    document.querySelector('.local').textContent = storage.mode === 'mysql' ? '● MYSQL CONNECTED' : '● BROWSER STORAGE';
-    document.querySelector('.secure-badge').textContent = storage.mode === 'mysql' ? '● Encrypted vault in MySQL' : '● Encrypted in this browser';
+    const databaseName = storage.mode === 'sqlite' ? 'SQLite' : 'MySQL';
+    document.querySelector('.local').textContent = storage.isDatabase ? `● ${databaseName.toUpperCase()} CONNECTED` : '● BROWSER STORAGE';
+    document.querySelector('.secure-badge').textContent = storage.isDatabase ? `● Encrypted vault in ${databaseName}` : '● Encrypted in this browser';
     if (storage.requiresAccount) { $('authTitle').textContent = 'Sign in to find your vault.'; accountGate.show(); }
     else { accountGate.update(); configureAuth(); $('authSubmit').disabled = false; }
   } catch (error) { $('authError').textContent = error.message; }
