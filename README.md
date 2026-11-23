@@ -10,7 +10,7 @@ Use Node.js 22 for the full app and Netlify Function. The standalone assignment 
 
 SQLite is now the default for `npm start`. Use Node.js 22.13 or newer. No MySQL server, database password, or hosted service is needed. The database is created automatically at [database/password-manager.sqlite](./database/password-manager.sqlite) and is ignored by Git. Choose `DATABASE_TYPE=sqlite` in `.env` to make this explicit. Your master password and account password are still required for the app; they are separate from database connection credentials.
 
-1. Run `npm install`, then `npm start` and open http://localhost:3000.
+1. Run `npm install`, then `npm start`. Google Chrome opens automatically at http://localhost:3000 after the server is ready. Keep the terminal running. Set `OPEN_BROWSER=false` in `.env` to disable automatic opening; production and CI runs also skip it.
 2. Register an account once, then create/unlock its vault. Use the same account to sign in later or from a second browser.
 3. In VS Code, install the recommended **SQLite Viewer** extension (`qwtel.sqlite-viewer`). Open [database/password-manager.sqlite](./database/password-manager.sqlite).
 4. Select `password_demo` for a compact presentation or `vault_entries` for all per-password encryption columns. `accounts` shows email and salted account-password hashes. `vaults` holds complete encrypted snapshots. `sessions` holds hashed session tokens.
