@@ -42,9 +42,30 @@
       this.signOut = document.createElement('button'); this.signOut.className = 'secondary hidden'; this.signOut.textContent = 'Sign out';
       this.signOut.onclick = onSignOut;
       document.querySelector('.header-right').prepend(this.identity, this.signOut);
+      this.switchAccount = document.createElement('button');
+      this.switchAccount.type = 'button'; this.switchAccount.className = 'secondary wide hidden';
+      this.switchAccount.textContent = 'Sign out / Switch account';
+      this.switchAccount.onclick = async () => {
+        this.switchAccount.disabled = true;
+        try { await onSignOut(); }
+        finally { this.switchAccount.disabled = false; }
+      };
+      document.getElementById('authForm').append(this.switchAccount);
     }
-    show() { document.getElementById('authDialog').close(); this.identity.textContent = ''; this.signOut.classList.add('hidden'); if (!this.dialog.open) this.dialog.showModal(); }
-    update() { this.identity.textContent = this.storage.email || ''; this.signOut.classList.toggle('hidden', !this.storage.email); }
+    show() {
+      document.getElementById('authDialog').close(); this.identity.textContent = '';
+      this.signOut.classList.add('hidden'); this.switchAccount.classList.add('hidden');
+      const form = this.dialog.querySelector('form');
+      form.reset(); form.querySelector('.error').textContent = '';
+      if (this.register) form.querySelector('.account-toggle').click();
+      form.querySelector('.legacy-master').classList.add('hidden'); form.elements.master.required = false;
+      if (!this.dialog.open) this.dialog.showModal();
+    }
+    update() {
+      this.identity.textContent = this.storage.email || '';
+      this.signOut.classList.toggle('hidden', !this.storage.email);
+      this.switchAccount.classList.toggle('hidden', !this.storage.email);
+    }
   }
   root.AccountGate = AccountGate;
   root.deriveSignInCredential = async (email, password) => {
