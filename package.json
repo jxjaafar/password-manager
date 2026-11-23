@@ -7,9 +7,9 @@
     "start": "node server.cjs",
     "db:setup": "node database.cjs",
     "build": "node build.cjs",
-    "check": "node --check password-manager.js && node --check app.js && node --check server.cjs && node --check build.cjs && node --check database.cjs && node --check storage-api.cjs",
+    "check": "node --check password-manager.js && node --check app.js && node --check account-ui.js && node --check vault-storage.js && node --check server.cjs && node --check build.cjs && node --check database.cjs && node --check storage-api.cjs && node --check account-auth.cjs && node --check function-adapter.cjs && node --check netlify/functions/api.mjs",
     "test": "node --test tests/*.test.cjs",
-    "test:db": "node --test tests/mysql.integration.cjs"
+    "test:db": "node --test tests/mysql.integration.cjs tests/accounts.integration.cjs"
   },
   "dependencies": {
     "dotenv": "^18.0.10",

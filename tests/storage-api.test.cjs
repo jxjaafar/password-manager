@@ -13,7 +13,7 @@ test('storage API isolates browsers, saves ciphertext, rejects conflicts and cro
       rows.set(id, { representation, revision: revision + 1 }); return { revision: revision + 1 };
     }
   };
-  const server = createServer(store); await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  const server = createServer(store, { accountAuth: false }); await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   t.after(() => new Promise(resolve => server.close(resolve)));
   const origin = `http://127.0.0.1:${server.address().port}`;
   const first = await fetch(`${origin}/api/vault`), cookie = first.headers.get('set-cookie').split(';')[0];
@@ -37,11 +37,11 @@ test('storage API isolates browsers, saves ciphertext, rejects conflicts and cro
   assert.equal((await fetch(`${origin}/.env`)).status, 404);
 });
 test('database failure is reported, never acknowledged as saved', async t => {
-  const server = createServer({ get: async () => { throw new Error('database offline'); } });
+  const server = createServer({ get: async () => { throw new Error('database offline'); } }, { accountAuth: false });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   t.after(() => new Promise(resolve => server.close(resolve)));
   const response = await fetch(`http://127.0.0.1:${server.address().port}/api/vault`);
-  assert.equal(response.status, 503); assert.match((await response.json()).error, /MySQL unavailable/);
+  assert.equal(response.status, 503); assert.match((await response.json()).error, /Database unavailable/);
 });
 test('encrypted envelope validation rejects unexpected plaintext fields', async () => {
   const chain = await Keychain.init('test master password'); const data = JSON.parse((await chain.dump())[0]);

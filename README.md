@@ -4,7 +4,7 @@ An educational password-manager core for ICS 3201 Project 1, with an optional br
 
 ## Run
 
-Requires Node.js 18 or newer. Install the server dependencies with `npm install`.
+Use Node.js 22 for the full app and Netlify Function. The standalone assignment core also supports Node.js 18. Install dependencies with `npm install`.
 
 ```sh
 npm install
@@ -17,21 +17,21 @@ npm run build
 
 ## Local MySQL connection
 
-The existing Node server now saves encrypted vault snapshots to MySQL. Browser-side cryptography and the assignment core are unchanged; the master password, encryption keys, and plaintext website passwords are never sent to the server. No account-password hashing or account login has been added in this checkpoint.
+The Node server and Netlify Function save encrypted vault snapshots to MySQL. Register an account once, then sign in with the same email and account password from any browser to load the same vault. Unlock it with its separate master password. Only the account password is sent over HTTPS for authentication; its salted scrypt hash is stored in MySQL. The master password, encryption keys, and plaintext website passwords stay in the browser.
 
 1. Start MySQL and copy [.env.example](./.env.example) to `.env`.
-2. Set `MYSQL_USER`, `MYSQL_PASSWORD`, host/port, and `MYSQL_DATABASE` (default: `password_manager`). Keep `.env` private; it is ignored by Git. The root example is for local setup only; a dedicated runtime user with SELECT/INSERT/UPDATE permissions on `vaults` is preferable.
+2. Set `MYSQL_USER`, `MYSQL_PASSWORD`, host/port, and `MYSQL_DATABASE` (default: `password_manager`). Keep `.env` private; it is ignored by Git. Use a dedicated runtime user with SELECT/INSERT/UPDATE/DELETE permissions on this app's tables. Reserve schema-changing privileges for the setup migration.
 3. Run `npm run db:setup` with a user allowed to create the database/table. It creates the schema without dropping existing tables.
 4. Run `npm start`. The terminal and UI should say **MySQL connected**.
 5. Run `npm run test:db` to verify actual database insert/load/update and conflict behavior. The test removes only its own randomly identified test row.
 
-The [database schema](./database/schema.sql) contains two tables: `vaults` keeps the exact encrypted snapshot and revision for checksum verification; `vault_entries` provides one row per saved password, with an entry ID, vault ID, protected domain tag, encrypted password, password nonce, encrypted account details, account-details nonce, and timestamps. Both update in the same transaction. `vault_entries` is a presentation/query projection; the snapshot remains authoritative. Run `npm run db:setup` after upgrading to create the new table and backfill existing version 2 vaults without decrypting them. Legacy snapshots populate individual rows after upgrade on unlock. Use the [demonstration queries](./database/demo-queries.sql) to display a compact table. Names, usernames, URLs, notes, and passwords remain encrypted; ciphertext still looks random. Never edit projection rows manually to change a password: use the app.
+The [database schema](./database/schema.sql) includes `accounts` (email, salted password hash, vault association), `sessions` (hashed session tokens and expiration), and persistent `auth_limits` for login throttling. `vaults` keeps the exact encrypted snapshot and revision; `vault_entries` provides one row per password with separate encryption columns and timestamps. Snapshot and record rows update together. The snapshot remains authoritative. Run `npm run db:setup` after upgrading to add tables and backfill encrypted rows without decrypting them. Use the [demonstration queries](./database/demo-queries.sql) for a compact presentation. Names, usernames, URLs, notes, and website passwords remain encrypted.
 
 SQL uses prepared statements. Revisions prevent stale tabs from overwriting newer changes. SHA-256 integrity checks still require the separate trusted reference described below; database revision numbers alone are not rollback protection.
 
-A random persistent HttpOnly, SameSite cookie identifies each browser's vault. This is a **local demonstration**, not account login or multi-device synchronization. Keep the server on loopback; the configured MySQL startup rejects non-loopback binding. Losing the cookie loses the browser's association with its database row, so keep encrypted exports. Cookie identifiers are scoped by hostname, not port; use a dedicated hostname/profile when running multiple installations. A new browser gets a separate vault. Account authentication must be implemented before a public multi-user deployment.
+Authentication uses random, hashed-at-rest session tokens with seven-day expiry, HttpOnly/SameSite cookies, Secure cookies on Netlify, origin checks, and database-backed per-email/per-IP throttling. The login password hash uses scrypt (N=131072, r=8, p=1, random 16-byte salt). Clearing cookies requires signing in again, not creating a new vault. Sign out revokes that session. Email is stored in plaintext for account lookup. There is no email verification or account-password reset yet. These features and independent auditing are needed before treating the project as a production password manager.
 
-Existing localStorage data is retained and copied to an empty MySQL vault only after successful unlock. Once connected, MySQL is authoritative; subsequent saves are not silently written to localStorage. If MySQL fails, the app reports the error. When `MYSQL_ENABLED=false` or on a static Netlify host without the API, browser-local mode remains available and is labeled as such. Static Netlify hosting alone does not run the MySQL backend. Full hosted database access is deferred until authentication and backend deployment are configured.
+When upgrading locally, register once in the same browser and hostname that used the old MySQL vault. Its existing legacy cookie can link an unclaimed vault to the new account transactionally. An owned vault cannot be claimed by a second account. If the legacy cookie is lost, restore an encrypted backup instead. LocalStorage data is retained but is not silently assigned to newly registered accounts. MySQL is authoritative in account mode. Missing/unreachable hosted APIs show an error rather than silently creating a browser-only vault. `MYSQL_ENABLED=false` remains an explicit local development mode only.
 
 Create a unique master passphrase of at least 12 characters. Add, edit, search, favorite, copy, and delete credentials. Passwords support at most 64 Unicode code points. The generator creates 12-64 characters. The vault locks after five minutes of inactivity. Legacy version 1 vaults migrate on successful unlock. Passwords over 64 characters block migration without changing saved data: use the previous app version to shorten them first.
 
@@ -80,12 +80,12 @@ Import authenticates the backup with its master password and optional trusted ch
 
 ## Netlify hosting
 
-Connect this GitHub repository to Netlify. [netlify.toml](./netlify.toml) runs `npm run build` and publishes `dist`. Pushes to the production branch rebuild from current source. For manual deployment, build and upload `dist` to the existing project's deploy page. The build includes the core library and restrictive security headers. Use HTTPS for remote hosting.
+Connect the GitHub repository to Netlify. [netlify.toml](./netlify.toml) builds `dist` and bundles [the API Function](./netlify/functions/api.mjs) at `/api/*`. Pushes rebuild both frontend and backend. Uploading only `dist` with drag-and-drop is insufficient for this account-backed version.
 
-This Netlify configuration deploys only the browser app. It uses browser storage, not MySQL. The database-backed mode runs through `npm start` locally. Neither mode currently adds accounts or cross-device synchronization. Export/import moves vaults between origins. The local server supplies CSP, MIME sniffing protection, no-referrer, and no-cache headers.
+Follow [DEPLOYMENT.md](./DEPLOYMENT.md): provision hosted MySQL, run the schema setup against it, add its credentials to Netlify's Functions environment settings, and redeploy. Netlify cannot reach the MySQL server at your computer's `127.0.0.1`. The Function refuses localhost and requires verified TLS. Optional `MYSQL_SSL_CA` supports a provider's CA certificate. No MySQL credentials are embedded in the frontend or committed to GitHub.
 
 ## Limits
 
-This educational design does not protect an unlocked browser against malware, malicious extensions, compromised scripts, OS attackers, or clipboard monitoring. JavaScript cannot guarantee physical memory erasure. Clearing browser storage may destroy the vault. Rollback protection requires an independently trusted, current checksum. There is no multi-user sharing, online sync, PQC exchange, or breach lookup.
+This educational design does not protect an unlocked browser against malware, malicious extensions, compromised scripts, OS attackers, or clipboard monitoring. JavaScript cannot guarantee physical memory erasure. Rollback protection requires an independently trusted, current checksum. There is no shared-site multi-user collaboration, PQC exchange, or breach lookup. Accounts enable cross-browser retrieval and optimistic conflict detection; refresh to fetch another browser's latest changes before editing. Hosted requests are limited to 4 MB. Account and master passwords have separate roles, with no recovery implemented for either.
 
 See [SHORT-ANSWERS.md](./SHORT-ANSWERS.md) and [REQUIREMENTS.md](./REQUIREMENTS.md) for the assignment explanations and coverage.

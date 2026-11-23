@@ -1,6 +1,7 @@
 const mysql = require('mysql2/promise');
 const fs = require('node:fs');
 const path = require('node:path');
+const { randomBytes, randomUUID } = require('node:crypto');
 
 function config(env = process.env) {
   const database = env.MYSQL_DATABASE || 'password_manager';
@@ -8,8 +9,8 @@ function config(env = process.env) {
   return {
     host: env.MYSQL_HOST || '127.0.0.1', port: Number(env.MYSQL_PORT || 3306),
     user: env.MYSQL_USER || 'root', password: env.MYSQL_PASSWORD || '', database,
-    connectionLimit: 5, connectTimeout: 5000,
-    ...(env.MYSQL_SSL === 'true' ? { ssl: { rejectUnauthorized: true } } : {})
+    connectionLimit: 3, connectTimeout: 5000,
+    ...(env.MYSQL_SSL === 'true' ? { ssl: { rejectUnauthorized: true, ...(env.MYSQL_SSL_CA ? { ca: env.MYSQL_SSL_CA.replace(/\\n/g, '\n') } : {}) } } : {})
   };
 }
 async function synchronizeEntries(connection, id, representation) {
@@ -34,6 +35,48 @@ async function synchronizeEntries(connection, id, representation) {
 }
 function createStore(pool) {
   return {
+    async findAccount(email) {
+      const [rows] = await pool.execute('SELECT account_id, email, password_hash, vault_id FROM accounts WHERE email = ?', [email]);
+      return rows[0] || null;
+    },
+    async registerAccount(email, passwordHash, legacyId) {
+      const connection = await pool.getConnection();
+      try {
+        await connection.beginTransaction();
+        let id = null;
+        if (legacyId) {
+          const [legacy] = await connection.execute('SELECT vault_id FROM vaults WHERE vault_id = ? AND representation IS NOT NULL FOR UPDATE', [legacyId]);
+          if (legacy.length) {
+            const [owners] = await connection.execute('SELECT account_id FROM accounts WHERE vault_id = ?', [legacyId]);
+            if (!owners.length) id = legacyId;
+          }
+        }
+        if (!id) {
+          id = randomBytes(32).toString('hex');
+          await connection.execute('INSERT INTO vaults (vault_id) VALUES (?)', [id]);
+        }
+        const account = { account_id: randomUUID(), email, vault_id: id };
+        await connection.execute('INSERT INTO accounts (account_id, email, password_hash, vault_id) VALUES (?, ?, ?, ?)', [account.account_id, email, passwordHash, id]);
+        await connection.commit(); return account;
+      } catch (error) { await connection.rollback(); throw error; }
+      finally { connection.release(); }
+    },
+    async createSession(hash, accountId) {
+      await pool.execute('DELETE FROM sessions WHERE expires_at <= UTC_TIMESTAMP()');
+      await pool.execute('INSERT INTO sessions (session_hash, account_id, expires_at) VALUES (?, ?, DATE_ADD(UTC_TIMESTAMP(), INTERVAL 7 DAY))', [hash, accountId]);
+    },
+    async session(hash) {
+      const [rows] = await pool.execute('SELECT a.account_id, a.email, a.vault_id FROM sessions s JOIN accounts a ON a.account_id = s.account_id WHERE s.session_hash = ? AND s.expires_at > UTC_TIMESTAMP()', [hash]);
+      return rows[0] || null;
+    },
+    async logout(hash) { await pool.execute('DELETE FROM sessions WHERE session_hash = ?', [hash]); },
+    async limit(key, maximum = 10) {
+      await pool.execute(`INSERT INTO auth_limits (limit_key, attempts, window_start) VALUES (?, 1, UTC_TIMESTAMP())
+        ON DUPLICATE KEY UPDATE attempts = IF(window_start < DATE_SUB(UTC_TIMESTAMP(), INTERVAL 15 MINUTE), 1, attempts + 1),
+        window_start = IF(window_start < DATE_SUB(UTC_TIMESTAMP(), INTERVAL 15 MINUTE), UTC_TIMESTAMP(), window_start)`, [key]);
+      const [rows] = await pool.execute('SELECT attempts FROM auth_limits WHERE limit_key = ?', [key]);
+      return rows[0].attempts <= maximum;
+    },
     async get(id) {
       const [rows] = await pool.execute('SELECT representation, revision FROM vaults WHERE vault_id = ?', [id]);
       return rows[0] || { representation: null, revision: 0 };
@@ -58,7 +101,7 @@ function createStore(pool) {
 }
 async function connectStore(env = process.env) {
   const pool = mysql.createPool(config(env));
-  try { await pool.execute('SELECT entry_id FROM vault_entries LIMIT 0'); return createStore(pool); }
+  try { await pool.execute('SELECT account_id FROM accounts LIMIT 0'); await pool.execute('SELECT session_hash FROM sessions LIMIT 0'); await pool.execute('SELECT limit_key FROM auth_limits LIMIT 0'); await pool.execute('SELECT entry_id FROM vault_entries LIMIT 0'); return createStore(pool); }
   catch (error) { await pool.end(); throw error; }
 }
 async function setup() {
@@ -67,8 +110,12 @@ async function setup() {
   delete options.database; delete options.connectionLimit;
   const connection = await mysql.createConnection(options);
   try {
-    await connection.query(`CREATE DATABASE IF NOT EXISTS \`${database}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_bin`);
-    await connection.changeUser({ database });
+    try { await connection.changeUser({ database }); }
+    catch (error) {
+      if (error.code !== 'ER_BAD_DB_ERROR') throw error;
+      await connection.query(`CREATE DATABASE \`${database}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_bin`);
+      await connection.changeUser({ database });
+    }
     const schema = fs.readFileSync(path.join(__dirname, 'database/schema.sql'), 'utf8');
     for (const statement of schema.split(';').map(value => value.trim()).filter(Boolean)) await connection.query(statement);
     await connection.beginTransaction();

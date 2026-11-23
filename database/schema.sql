@@ -9,6 +9,29 @@ CREATE TABLE IF NOT EXISTS vaults (
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB;
 
+CREATE TABLE IF NOT EXISTS accounts (
+  account_id CHAR(36) CHARACTER SET ascii COLLATE ascii_bin PRIMARY KEY,
+  email VARCHAR(254) CHARACTER SET ascii COLLATE ascii_bin NOT NULL UNIQUE,
+  password_hash VARCHAR(256) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  vault_id CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL UNIQUE,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_account_vault FOREIGN KEY (vault_id) REFERENCES vaults(vault_id)
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS sessions (
+  session_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin PRIMARY KEY,
+  account_id CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  expires_at DATETIME NOT NULL,
+  INDEX session_expiry (expires_at),
+  CONSTRAINT fk_session_account FOREIGN KEY (account_id) REFERENCES accounts(account_id) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS auth_limits (
+  limit_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin PRIMARY KEY,
+  attempts INT UNSIGNED NOT NULL DEFAULT 0,
+  window_start DATETIME NOT NULL
+) ENGINE=InnoDB;
+
 -- One visible row per password, maintained transactionally from the encrypted vault.
 -- The exact snapshot above remains authoritative for checksum verification.
 CREATE TABLE IF NOT EXISTS vault_entries (

@@ -7,6 +7,7 @@ document.querySelector('.dialog-logo').outerHTML = `<div class="treasure-scene" 
 }
 const STORAGE = 'citadel.vault.v1';
 let storage = null;
+let accountGate = null;
 const ITERATIONS = 600000;
 let key = null, vault = [], envelope = null, filter = 'all', idleTimer, toastTimer;
 const encoder = new TextEncoder();
@@ -235,14 +236,25 @@ initializeBrand();
 const trustedLabel = element('label', '', 'Trusted SHA-256 checksum (optional)');
 const trustedInput = element('input'); trustedInput.id = 'trustedChecksum'; trustedInput.autocomplete = 'off'; trustedInput.placeholder = 'From your separate trusted storage'; trustedLabel.append(trustedInput);
 $('authSubmit').before(trustedLabel);
+const restoreBackup = element('button', 'text-button', 'Restore an existing encrypted backup');
+restoreBackup.type = 'button'; restoreBackup.onclick = () => $('importBtn').click(); $('authSubmit').after(restoreBackup);
 $('entryPassword').maxLength = 128;
 async function initializeStorage() {
   render(); $('authSubmit').disabled = true; $('authDialog').showModal();
   try {
     storage = new VaultStorage(STORAGE); await storage.initialize();
+    accountGate = new AccountGate(storage, async () => {
+      accountGate.update(); configureAuth(); $('authSubmit').disabled = false;
+    }, async () => {
+      lock(); $('authSubmit').disabled = true;
+      try { await storage.logout(); accountGate.show(); }
+      catch (error) { $('authError').textContent = error.message; $('authSubmit').disabled = false; }
+    });
     document.querySelector('.local').textContent = storage.mode === 'mysql' ? '● MYSQL CONNECTED' : '● BROWSER STORAGE';
     document.querySelector('.secure-badge').textContent = storage.mode === 'mysql' ? '● Encrypted vault in MySQL' : '● Encrypted in this browser';
-    configureAuth(); $('authSubmit').disabled = false;
+    if (storage.requiresAccount) { $('authTitle').textContent = 'Sign in to find your vault.'; accountGate.show(); }
+    else { accountGate.update(); configureAuth(); $('authSubmit').disabled = false; }
   } catch (error) { $('authError').textContent = error.message; }
 }
 initializeStorage().catch(error => { $('authError').textContent = error.message; });
+window.addEventListener('account-session-expired', () => { lock(); $('authSubmit').disabled = true; accountGate?.show(); });
