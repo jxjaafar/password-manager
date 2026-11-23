@@ -2,6 +2,7 @@ const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
 const files = { '/': ['index.html', 'text/html'], '/index.html': ['index.html', 'text/html'], '/style.css': ['style.css', 'text/css'], '/magic.css': ['magic.css', 'text/css'], '/app.js': ['app.js', 'text/javascript'] };
+files['/password-manager.js'] = ['password-manager.js', 'text/javascript'];
 const server = http.createServer((req, res) => {
   const file = files[req.url.split('?')[0]];
   res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'");

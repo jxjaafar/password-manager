@@ -4,22 +4,25 @@ const { webcrypto } = require('node:crypto');
 const vm = require('node:vm');
 const fs = require('node:fs');
 const source = fs.readFileSync(require('node:path').join(__dirname, '..', 'app.js'), 'utf8');
-const context = vm.createContext({ crypto: webcrypto, TextEncoder, TextDecoder, Uint8Array, Uint32Array, btoa, atob, document: { getElementById: id => ({ checked: true, value: '20' }) }, localStorage: { setItem: (name, value) => { context.saved = value; } } });
+const { Keychain } = require('../password-manager.js');
+const context = vm.createContext({ Keychain, crypto: webcrypto, TextEncoder, TextDecoder, Uint8Array, Uint32Array, btoa, atob, document: { getElementById: id => ({ checked: true, value: '20' }) }, localStorage: { setItem: (name, value) => { context.saved = value; } } });
 vm.runInContext(source.slice(0, source.indexOf('function render()')), context);
 test('actual vault encryption round-trips and rejects wrong keys and tampering', async () => {
   await vm.runInContext(`(async () => {
-    envelope = { salt: b64(crypto.getRandomValues(new Uint8Array(16))) };
-    key = await derive('a long master passphrase', unb64(envelope.salt));
-    await persist([{ name: 'Example', password: 'secret-test-password' }]);
+    key = await Keychain.init('a long master passphrase');
+    await persist([{ id: 'example.com', name: 'Example', password: 'secret-test-password' }]);
   })()`, context);
   assert.ok(!context.saved.includes('secret-test-password'));
-  const plain = await vm.runInContext(`(async () => new TextDecoder().decode(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: unb64(envelope.iv) }, key, unb64(envelope.data))))()`, context);
-  assert.equal(JSON.parse(plain)[0].password, 'secret-test-password');
-  const first = JSON.parse(context.saved);
+  const restored = await Keychain.load('a long master passphrase', context.saved);
+  assert.equal(await restored.get('example.com'), 'secret-test-password');
+  const first = context.saved;
   await vm.runInContext('persist()', context);
-  assert.notEqual(JSON.parse(context.saved).iv, first.iv);
-  await assert.rejects(vm.runInContext(`(async () => { const wrongKey = await derive('wrong master passphrase', unb64(envelope.salt)); return crypto.subtle.decrypt({ name: 'AES-GCM', iv: unb64(envelope.iv) }, wrongKey, unb64(envelope.data)); })()`, context));
-  await assert.rejects(vm.runInContext(`(async () => { const bytes = unb64(envelope.data); bytes[0] ^= 1; return crypto.subtle.decrypt({ name: 'AES-GCM', iv: unb64(envelope.iv) }, key, bytes); })()`, context));
+  assert.equal(context.saved, first, 'Unchanged records retain their ciphertext');
+  await assert.rejects(Keychain.load('wrong master passphrase', context.saved));
+  const modified = JSON.parse(context.saved), tag = Object.keys(modified.kvs)[0];
+  const bytes = Buffer.from(modified.kvs[tag].ciphertext, 'base64'); bytes[0] ^= 1;
+  modified.kvs[tag].ciphertext = bytes.toString('base64');
+  await assert.rejects(Keychain.load('a long master passphrase', JSON.stringify(modified)));
 });
 test('generator obeys length and character requirements', () => {
   for (const length of [12, 20, 64]) {
