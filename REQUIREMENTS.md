@@ -19,3 +19,7 @@ Based on the supplied ICS 3201 documentation. Submit [password-manager.js](./pas
 | Six short answers | [SHORT-ANSWERS.md](./SHORT-ANSWERS.md) |
 
 The original starter and official grading tests were not provided. These tests are functional/adversarial checks, not a formal security proof or a claim of autograder compatibility. PBKDF2 timing depends on hardware. All binary fields and the SHA-256 checksum use Base64.
+
+## Additional database checkpoint
+
+The optional Node/MySQL layer is implemented in [database.cjs](./database.cjs), [storage-api.cjs](./storage-api.cjs), and [database/schema.sql](./database/schema.sql). It stores the exact encrypted representation without changing the required core API. Browser integration uses [vault-storage.js](./vault-storage.js). `npm test` covers API isolation, conflicts, input validation, and database failure handling; `npm run test:db` exercises real MySQL. Database credentials stay in ignored `.env` files. This local checkpoint uses a browser capability cookie rather than account login; public multi-user hosting remains deferred.

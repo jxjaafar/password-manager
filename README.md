@@ -4,15 +4,32 @@ An educational password-manager core for ICS 3201 Project 1, with an optional br
 
 ## Run
 
-Requires Node.js 18 or newer; no dependencies to install.
+Requires Node.js 18 or newer. Install the server dependencies with `npm install`.
 
 ```sh
+npm install
 npm start
 # Open http://localhost:3000
 npm run check
 npm test
 npm run build
 ```
+
+## Local MySQL connection
+
+The existing Node server now saves encrypted vault snapshots to MySQL. Browser-side cryptography and the assignment core are unchanged; the master password, encryption keys, and plaintext website passwords are never sent to the server. No account-password hashing or account login has been added in this checkpoint.
+
+1. Start MySQL and copy [.env.example](./.env.example) to `.env`.
+2. Set `MYSQL_USER`, `MYSQL_PASSWORD`, host/port, and `MYSQL_DATABASE` (default: `password_manager`). Keep `.env` private; it is ignored by Git. The root example is for local setup only; a dedicated runtime user with SELECT/INSERT/UPDATE permissions on `vaults` is preferable.
+3. Run `npm run db:setup` with a user allowed to create the database/table. It creates the schema without dropping existing tables.
+4. Run `npm start`. The terminal and UI should say **MySQL connected**.
+5. Run `npm run test:db` to verify actual database insert/load/update and conflict behavior. The test removes only its own randomly identified test row.
+
+The [vaults table](./database/schema.sql) stores a vault identifier, the exact serialized encrypted representation, an optimistic revision number, and timestamps. Individual passwords remain separately encrypted inside the representation. SQL uses prepared statements. Saving an edited vault replaces its encrypted snapshot atomically; revisions prevent stale tabs from overwriting newer changes. SHA-256 integrity checks still require the separate trusted reference described below; database revision numbers alone are not rollback protection.
+
+A random persistent HttpOnly, SameSite cookie identifies each browser's vault. This is a **local demonstration**, not account login or multi-device synchronization. Keep the server on loopback; the configured MySQL startup rejects non-loopback binding. Losing the cookie loses the browser's association with its database row, so keep encrypted exports. Cookie identifiers are scoped by hostname, not port; use a dedicated hostname/profile when running multiple installations. A new browser gets a separate vault. Account authentication must be implemented before a public multi-user deployment.
+
+Existing localStorage data is retained and copied to an empty MySQL vault only after successful unlock. Once connected, MySQL is authoritative; subsequent saves are not silently written to localStorage. If MySQL fails, the app reports the error. When `MYSQL_ENABLED=false` or on a static Netlify host without the API, browser-local mode remains available and is labeled as such. Static Netlify hosting alone does not run the MySQL backend. Full hosted database access is deferred until authentication and backend deployment are configured.
 
 Create a unique master passphrase of at least 12 characters. Add, edit, search, favorite, copy, and delete credentials. Passwords support at most 64 Unicode code points. The generator creates 12-64 characters. The vault locks after five minutes of inactivity. Legacy version 1 vaults migrate on successful unlock. Passwords over 64 characters block migration without changing saved data: use the previous app version to shorten them first.
 
@@ -63,7 +80,7 @@ Import authenticates the backup with its master password and optional trusted ch
 
 Connect this GitHub repository to Netlify. [netlify.toml](./netlify.toml) runs `npm run build` and publishes `dist`. Pushes to the production branch rebuild from current source. For manual deployment, build and upload `dist` to the existing project's deploy page. The build includes the core library and restrictive security headers. Use HTTPS for remote hosting.
 
-Vaults stay in each visitor's browser. Hosting does not add accounts, shared storage, or automatic synchronization. Export/import moves a vault between origins. The local server listens only on loopback and supplies CSP, MIME sniffing protection, no-referrer, and no-cache headers.
+This Netlify configuration deploys only the browser app. It uses browser storage, not MySQL. The database-backed mode runs through `npm start` locally. Neither mode currently adds accounts or cross-device synchronization. Export/import moves vaults between origins. The local server supplies CSP, MIME sniffing protection, no-referrer, and no-cache headers.
 
 ## Limits
 

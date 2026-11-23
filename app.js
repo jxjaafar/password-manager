@@ -6,6 +6,7 @@ document.querySelector('.brand').innerHTML = `<span class="brand-key">${magicKey
 document.querySelector('.dialog-logo').outerHTML = `<div class="treasure-scene" aria-hidden="true"><div class="treasure-halo"></div><span class="spark spark-one">✦</span><span class="spark spark-two">✧</span><span class="spark spark-three">✦</span><div class="chest"><div class="chest-light"></div><div class="chest-lid"><i></i></div><div class="chest-body"><i></i><span class="chest-lock">⌕</span></div></div><div class="flying-key">${magicKey}</div><div class="scene-caption">A LITTLE MAGIC. ONLY YOUR KEY.</div></div>`;
 }
 const STORAGE = 'citadel.vault.v1';
+let storage = null;
 const ITERATIONS = 600000;
 let key = null, vault = [], envelope = null, filter = 'all', idleTimer, toastTimer;
 const encoder = new TextEncoder();
@@ -38,7 +39,9 @@ async function persist(nextVault = vault) {
   }
   const [representation] = await chain.dump();
   if (key !== startingKey) throw new Error('Vault locked or changed while saving. Unlock and try again.');
-  localStorage.setItem(STORAGE, representation);
+  if (storage) await storage.save(representation);
+  else localStorage.setItem(STORAGE, representation);
+  if (key !== startingKey) throw new Error('Vault locked during save. Unlock to reload the saved data.');
   key = chain; envelope = JSON.parse(representation); vault = metadata;
 }
 function strength(password) { return password.length >= 16 && new Set(password).size >= 8 ? 'Strong' : password.length >= 12 && new Set(password).size >= 6 ? 'Fair' : 'Weak'; }
@@ -113,7 +116,7 @@ function lock() {
 function configureAuth() {
   $('authDialog').classList.remove('unlocking', 'denied');
   $('authForm').reset(); $('masterPassword').type = 'password'; $('authError').textContent = '';
-  const exists = Boolean(localStorage.getItem(STORAGE));
+  const exists = Boolean(storage ? storage.read() : localStorage.getItem(STORAGE));
   $('authTitle').textContent = exists ? 'Your key to everything.' : 'Welcome to Password.';
   $('authDescription').textContent = exists ? 'Enter your master password to unlock your private vault.' : 'Create a master password to start your encrypted vault.';
   $('confirmLabel').classList.toggle('hidden', exists); $('confirmPassword').required = !exists;
@@ -126,7 +129,7 @@ $('authForm').onsubmit = async event => {
   event.preventDefault(); $('authError').textContent = ''; $('authSubmit').disabled = true;
   try {
     if (!crypto.subtle) throw new Error('Use localhost or HTTPS to enable secure cryptography.');
-    const stored = localStorage.getItem(STORAGE), password = $('masterPassword').value;
+    const stored = storage ? storage.read() : localStorage.getItem(STORAGE), password = $('masterPassword').value;
     if (!stored && password !== $('confirmPassword').value) throw new Error('The master passwords do not match.');
     const trusted = $('trustedChecksum').value.trim() || undefined;
     const parsed = stored ? JSON.parse(stored) : null;
@@ -146,6 +149,7 @@ $('authForm').onsubmit = async event => {
       key = stored ? await Keychain.load(password, stored, trusted) : await Keychain.init(password);
       vault = await key.entries();
       if (!stored) await persist();
+      else if (storage?.mode === 'mysql' && storage.representation === null) await storage.save(stored);
     }
     $('authForm').reset();
     $('authTitle').textContent = 'Your treasures await.';
@@ -211,7 +215,7 @@ $('importFile').onchange = async () => {
       const legacyKey = await derive(password, unb64(imported.salt));
       await crypto.subtle.decrypt({ name: 'AES-GCM', iv: unb64(imported.iv) }, legacyKey, unb64(imported.data));
     }
-    localStorage.setItem(STORAGE, representation); lock(); notify('Backup authenticated and imported. Unlock with its master password.');
+    await storage.save(representation); lock(); notify('Backup authenticated and imported. Unlock with its master password.');
   } catch { notify('Import failed. Select a valid Password encrypted backup.'); }
 };
 $('allNav').onclick = () => { filter = 'all'; showView('vaultView'); };
@@ -226,10 +230,19 @@ $('generateBtn').onclick = () => { $('generatedPassword').textContent = generate
 $('length').oninput = () => { $('lengthValue').textContent = $('length').value; $('generatedPassword').textContent = generate(); };
 $('copyGenerated').onclick = () => copy($('generatedPassword').textContent);
 for (const event of ['pointerdown', 'keydown', 'input']) document.addEventListener(event, resetIdle, { passive: true });
-window.addEventListener('storage', event => { if (event.key === STORAGE && key) { lock(); notify('Vault changed in another tab. Unlock again.'); } });
+window.addEventListener('storage', event => { if (storage?.mode === 'local' && event.key === STORAGE && key) { lock(); notify('Vault changed in another tab. Unlock again.'); } });
 initializeBrand();
 const trustedLabel = element('label', '', 'Trusted SHA-256 checksum (optional)');
 const trustedInput = element('input'); trustedInput.id = 'trustedChecksum'; trustedInput.autocomplete = 'off'; trustedInput.placeholder = 'From your separate trusted storage'; trustedLabel.append(trustedInput);
 $('authSubmit').before(trustedLabel);
 $('entryPassword').maxLength = 128;
-render(); configureAuth();
+async function initializeStorage() {
+  render(); $('authSubmit').disabled = true; $('authDialog').showModal();
+  try {
+    storage = new VaultStorage(STORAGE); await storage.initialize();
+    document.querySelector('.local').textContent = storage.mode === 'mysql' ? '● MYSQL CONNECTED' : '● BROWSER STORAGE';
+    document.querySelector('.secure-badge').textContent = storage.mode === 'mysql' ? '● Encrypted vault in MySQL' : '● Encrypted in this browser';
+    configureAuth(); $('authSubmit').disabled = false;
+  } catch (error) { $('authError').textContent = error.message; }
+}
+initializeStorage().catch(error => { $('authError').textContent = error.message; });
